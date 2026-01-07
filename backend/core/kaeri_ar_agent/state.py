@@ -21,3 +21,5 @@ class PipelineState(TypedDict, total=False):
     max_iterations: int
     last_issues: List[str]
     prompts: Dict[str, str]
+    g2_route: Optional[str]
+    qa_route: Optional[str]

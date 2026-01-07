@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
+import re
 
 from langgraph.graph import END, StateGraph
 
@@ -30,6 +31,8 @@ def _init_state(inputs: PipelineInputs, config: AgentConfig) -> PipelineState:
         "max_iterations": config.max_iterations,
         "last_issues": [],
         "prompts": load_prompts(config.prompts_path),
+        "g2_route": None,
+        "qa_route": None,
     }
 
 
@@ -296,6 +299,8 @@ def _audit_node(
     gates = {**state.get("gates", {}), "g2_passed": audit.passed}
     errors = list(state.get("errors", []))
     warnings = list(state.get("warnings", []))
+    g2_route = None
+    iteration = state.get("iteration", 0)
     if not audit.passed:
         if config.g2_mode == "soft":
             warnings.extend(audit.issues)
@@ -310,7 +315,9 @@ def _audit_node(
             errors.extend(audit.issues)
             if emit:
                 emit("auditor", "G2 failed", {"summary": "인용/출처 불일치 발견", "issues": audit.issues})
+            g2_route = _classify_g2_route(audit.issues)
         last_issues = audit.issues
+        iteration = iteration + 1
     elif emit:
         emit("auditor", "G2 passed", {"summary": "인용/출처 매핑 통과"})
     return {
@@ -319,6 +326,8 @@ def _audit_node(
         "errors": errors,
         "warnings": warnings,
         "last_issues": last_issues if not audit.passed else [],
+        "g2_route": g2_route,
+        "iteration": iteration,
     }
 
 
@@ -372,15 +381,23 @@ def _qa_node(
         system_prompt=prompts.get("qa", ""),
     )
     last_issues: List[str] = []
+    qa_route = None
     errors = list(state.get("errors", []))
     if issues:
         errors.extend(issues)
         if emit:
             emit("qa", "QA issues found", {"summary": "QA 문제 발견", "issues": issues})
         last_issues = issues
+        qa_route = _classify_qa_route(issues)
+        iteration = state.get("iteration", 0) + 1
     elif emit:
         emit("qa", "QA passed", {"summary": "QA 통과"})
-    return {"errors": errors, "last_issues": last_issues if issues else []}
+    return {
+        "errors": errors,
+        "last_issues": last_issues if issues else [],
+        "qa_route": qa_route,
+        "iteration": iteration if issues else state.get("iteration", 0),
+    }
 
 
 def _refine_node(
@@ -414,6 +431,37 @@ def _refine_node(
     return {"plan_queries": refined, "iteration": iteration}
 
 
+def _normalize_citations_node(state: PipelineState) -> Dict:
+    drafts = state.get("drafts", [])
+    normalized = []
+    pattern = re.compile(r"S-ARXIV-([0-9.]+v\d+)", re.IGNORECASE)
+    for draft in drafts:
+        text = pattern.sub(r"arXiv:\1", draft.text)
+        normalized.append(
+            draft.model_copy(update={"text": text})
+        )
+    return {"drafts": normalized}
+
+
+def _classify_g2_route(issues: List[str]) -> str:
+    joined = " ".join(issues).lower()
+    format_signals = ["non-standard", "format", "placeholder", "s-arxiv", "bibliographic", "authors", "titles"]
+    if any(signal in joined for signal in format_signals):
+        return "normalize"
+    return "refine"
+
+
+def _classify_qa_route(issues: List[str]) -> str:
+    joined = " ".join(issues)
+    if any(key in joined for key in ["요약", "키워드", "참고문헌", "구조", "섹션"]):
+        return "compose"
+    if any(key in joined for key in ["문체", "존칭"]):
+        return "write"
+    if any(key in joined for key in ["재현", "방법론", "출처", "근거"]):
+        return "refine"
+    return "write"
+
+
 def build_pipeline(
     config: AgentConfig,
     emit: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]] = None,
@@ -430,6 +478,7 @@ def build_pipeline(
     graph.add_node("compose", lambda state: _compose_node(state, config, emit))
     graph.add_node("qa", lambda state: _qa_node(state, config, emit))
     graph.add_node("refine", lambda state: _refine_node(state, config, emit))
+    graph.add_node("normalize_citations", _normalize_citations_node)
 
     graph.set_entry_point("outline")
     graph.add_edge("outline", "plan")
@@ -453,12 +502,21 @@ def build_pipeline(
         "audit",
         lambda state: "compose"
         if state.get("gates", {}).get("g2_passed")
-        else ("refine" if state.get("iteration", 0) < state.get("max_iterations", 0) else END),
+        else (
+            "normalize_citations"
+            if state.get("g2_route") == "normalize"
+            else ("refine" if state.get("iteration", 0) < state.get("max_iterations", 0) else END)
+        ),
     )
+    graph.add_edge("normalize_citations", "compose")
     graph.add_edge("compose", "qa")
     graph.add_conditional_edges(
         "qa",
-        lambda state: "refine"
+        lambda state: (
+            "compose"
+            if state.get("qa_route") == "compose"
+            else ("write" if state.get("qa_route") == "write" else "refine")
+        )
         if state.get("last_issues") and state.get("iteration", 0) < state.get("max_iterations", 0)
         else END,
     )
@@ -473,4 +531,4 @@ def run_pipeline(
 ) -> PipelineState:
     graph = build_pipeline(config, emit)
     app = graph.compile()
-    return app.invoke(_init_state(inputs, config))
+    return app.invoke(_init_state(inputs, config), config={"recursion_limit": 100})
