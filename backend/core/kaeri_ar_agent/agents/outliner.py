@@ -39,11 +39,18 @@ async def generate_outline_async(
         payload = json.loads(text)
         topic = payload.get("topic", "AR 기술동향 보고서")
         outline = payload.get("outline", [])
+        scope = payload.get("scope")
+        exclusions = payload.get("exclusions", [])
         if isinstance(outline, list) and outline:
-            return {"topic": topic, "outline": outline}
+            return {
+                "topic": topic,
+                "outline": outline,
+                "scope": scope,
+                "exclusions": exclusions if isinstance(exclusions, list) else [],
+            }
     except Exception:
         pass
-    return {"topic": "AR 기술동향 보고서", "outline": []}
+    return {"topic": "AR 기술동향 보고서", "outline": [], "scope": None, "exclusions": []}
 
 
 def generate_outline(

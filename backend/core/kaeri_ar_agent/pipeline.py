@@ -33,6 +33,8 @@ def _init_state(inputs: PipelineInputs, config: AgentConfig) -> PipelineState:
         "prompts": load_prompts(config.prompts_path),
         "g2_route": None,
         "qa_route": None,
+        "retrieval_stats": {},
+        "evidence_stats": {},
     }
 
 
@@ -60,6 +62,8 @@ def _outline_node(
         raw_prompt=state["inputs"].raw_prompt,
         topic=str(payload.get("topic") or state["inputs"].topic),
         outline=list(payload.get("outline") or []),
+        scope=payload.get("scope"),
+        exclusions=list(payload.get("exclusions") or []),
     )
     errors = list(state.get("errors", []))
     if not inputs.outline:
@@ -68,7 +72,13 @@ def _outline_node(
         emit(
             "outliner",
             "outline generation completed",
-            {"summary": "프롬프트 기반 목차 생성 완료", "topic": inputs.topic, "outline": inputs.outline},
+            {
+                "summary": "프롬프트 기반 목차 생성 완료",
+                "topic": inputs.topic,
+                "outline": inputs.outline,
+                "scope": inputs.scope,
+                "exclusions": inputs.exclusions,
+            },
         )
     return {"inputs": inputs, "errors": errors}
 
@@ -128,7 +138,13 @@ def _retrieve_node(
             },
         )
     llm = config.build_llm("retriever") if not config.mock_mode else None
-    sources = retrieve_sources(config, state["plan_queries"], llm=llm, emit=emit)
+    plan_queries = state["plan_queries"]
+    sources = retrieve_sources(config, plan_queries, llm=llm, emit=emit)
+    total_queries = sum(len(queries) for queries in plan_queries.values())
+    retrieval_stats = {
+        "total_queries": total_queries,
+        "retrieved_sources": len(sources),
+    }
     if emit:
         emit(
             "retriever",
@@ -141,7 +157,7 @@ def _retrieve_node(
                 ]
             },
         )
-    return {"sources": sources}
+    return {"sources": sources, "retrieval_stats": retrieval_stats}
 
 
 def _gate_g1_node(
@@ -189,6 +205,9 @@ def _extract_node(
         emit=emit,
         system_prompt=prompts.get("extractor", ""),
     )
+    evidence_stats = {
+        "evidence_items": len(evidence),
+    }
     if emit:
         emit(
             "extractor",
@@ -201,7 +220,7 @@ def _extract_node(
                 ]
             },
         )
-    return {"evidence": evidence}
+    return {"evidence": evidence, "evidence_stats": evidence_stats}
 
 
 def _gate_evidence_node(
@@ -251,6 +270,9 @@ def _write_node(
     llm = config.build_llm("writer") if not config.mock_mode else None
     drafts = write_chapters(
         config,
+        inputs.topic,
+        inputs.scope,
+        inputs.exclusions,
         inputs.outline,
         state.get("evidence", []),
         llm=llm,
@@ -347,8 +369,15 @@ def _compose_node(
         )
     llm = config.build_llm("composer") if not config.mock_mode else None
     prompts = state.get("prompts", {})
+    sources = [source.model_dump() for source in state.get("sources", [])]
     composed = compose_text(
         state.get("drafts", []),
+        sources,
+        plan_queries=state.get("plan_queries"),
+        scope=state["inputs"].scope,
+        exclusions=state["inputs"].exclusions,
+        retrieval_stats=state.get("retrieval_stats"),
+        evidence_stats=state.get("evidence_stats"),
         llm=llm,
         emit=emit,
         system_prompt=prompts.get("composer", ""),
@@ -379,6 +408,7 @@ def _qa_node(
         llm=llm,
         emit=emit,
         system_prompt=prompts.get("qa", ""),
+        context=f"Topic: {state['inputs'].topic}; Scope: {state['inputs'].scope or ''}; Exclusions: {', '.join(state['inputs'].exclusions)}",
     )
     last_issues: List[str] = []
     qa_route = None
@@ -453,6 +483,8 @@ def _classify_g2_route(issues: List[str]) -> str:
 
 def _classify_qa_route(issues: List[str]) -> str:
     joined = " ".join(issues)
+    if any(key in joined for key in ["주제", "일관성", "스코프", "범위"]):
+        return "outline"
     if any(key in joined for key in ["요약", "키워드", "참고문헌", "구조", "섹션"]):
         return "compose"
     if any(key in joined for key in ["문체", "존칭"]):
@@ -513,9 +545,13 @@ def build_pipeline(
     graph.add_conditional_edges(
         "qa",
         lambda state: (
-            "compose"
-            if state.get("qa_route") == "compose"
-            else ("write" if state.get("qa_route") == "write" else "refine")
+            "outline"
+            if state.get("qa_route") == "outline"
+            else (
+                "compose"
+                if state.get("qa_route") == "compose"
+                else ("write" if state.get("qa_route") == "write" else "refine")
+            )
         )
         if state.get("last_issues") and state.get("iteration", 0) < state.get("max_iterations", 0)
         else END,

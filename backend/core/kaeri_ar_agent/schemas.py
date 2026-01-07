@@ -51,6 +51,8 @@ class PipelineInputs(BaseModel):
     raw_prompt: str = ""
     topic: str
     outline: List[str]
+    scope: Optional[str] = None
+    exclusions: List[str] = Field(default_factory=list)
     template_id: str = "ar-report-template"
     language: str = "ko"
     style: str = "technical"

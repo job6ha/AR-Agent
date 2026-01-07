@@ -10,6 +10,9 @@ from ..llm_stream import StreamEmit, stream_llm_response
 
 def write_chapters(
     _config: AgentConfig,
+    topic: str,
+    scope: Optional[str],
+    exclusions: List[str],
     outline: List[str],
     evidence: List[EvidenceItem],
     llm: Optional[object] = None,
@@ -31,6 +34,9 @@ def write_chapters(
                 "Use only the evidence snippets and cite sources as (source_id). "
                 "No honorifics. Return a single paragraph.\n\n"
                 f"Chapter: {chapter}\n"
+                f"Report topic: {topic}\n"
+                f"Scope: {scope or ''}\n"
+                f"Exclusions: {', '.join(exclusions) if exclusions else ''}\n"
                 "Evidence:\n"
             )
             for item in items:

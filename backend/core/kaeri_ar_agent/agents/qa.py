@@ -12,6 +12,7 @@ async def qa_checks_async(
     llm: Optional[object] = None,
     emit: Optional[StreamEmit] = None,
     system_prompt: str = "",
+    context: str = "",
 ) -> List[str]:
     issues: List[str] = []
     if not drafts:
@@ -27,6 +28,8 @@ async def qa_checks_async(
         "Check for style violations (honorifics, missing required sections). "
         "Return a JSON array of issues.\n\n"
     )
+    if context:
+        prompt += f"Context: {context}\n"
     for draft in drafts:
         prompt += f"[{draft.chapter_id}] {draft.text}\n"
     text = await stream_llm_response(llm, prompt, emit, "qa", system_prompt=system_prompt)
@@ -46,7 +49,14 @@ def qa_checks(
     llm: Optional[object] = None,
     emit: Optional[StreamEmit] = None,
     system_prompt: str = "",
+    context: str = "",
 ) -> List[str]:
     return asyncio.run(
-        qa_checks_async(drafts, llm=llm, emit=emit, system_prompt=system_prompt)
+        qa_checks_async(
+            drafts,
+            llm=llm,
+            emit=emit,
+            system_prompt=system_prompt,
+            context=context,
+        )
     )

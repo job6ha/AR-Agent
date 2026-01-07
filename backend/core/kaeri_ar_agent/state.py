@@ -23,3 +23,5 @@ class PipelineState(TypedDict, total=False):
     prompts: Dict[str, str]
     g2_route: Optional[str]
     qa_route: Optional[str]
+    retrieval_stats: Dict[str, int]
+    evidence_stats: Dict[str, int]
