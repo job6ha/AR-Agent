@@ -1,4 +1,4 @@
-KAERI AR Report Agent
+AR Report Agent
 =====================
 
 개요
