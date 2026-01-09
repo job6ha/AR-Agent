@@ -12,4 +12,12 @@ else
     return
 fi
 
+# 2. 테스트에서 backend 모듈을 찾을 수 있도록 PYTHONPATH 설정
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}"
+
+# 3. 간단 테스트 헬퍼(선택)
+ar_test() {
+    uv run pytest -q "$@"
+}
+
 echo "✅ [AR-Agent] 환경 활성화 완료!"

@@ -19,10 +19,13 @@ async def refine_query_plan_async(
 ) -> Dict[str, List[str]]:
     if mock_mode or llm is None:
         refined = {chapter: list(queries) for chapter, queries in plan_queries.items()}
+        needs_resolution = any("Consensus" in issue for issue in issues)
         for chapter in inputs.outline:
             refined.setdefault(chapter, [])
             refined[chapter].append(f"{chapter} technical report pdf")
             refined[chapter].append(f"{chapter} site:arxiv.org")
+            if needs_resolution:
+                refined[chapter].append(f"{chapter} DOI")
         return refined
 
     prompt = (

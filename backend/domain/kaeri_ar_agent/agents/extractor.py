@@ -39,10 +39,11 @@ def extract_evidence(
         for chapter in chapters:
             for index, source in enumerate(sources):
                 claim_id = f"{chapter}-C{index+1:03d}"
+                source_id = source.canonical_source_id or source.source_id
                 evidence.append(
                     EvidenceItem(
                         claim_id=claim_id,
-                        source_id=source.source_id,
+                        source_id=source_id,
                         snippet=f"{chapter} evidence placeholder from {source.title}",
                         locator="abstract",
                         relevance_score=0.5,
@@ -97,9 +98,10 @@ def extract_evidence(
         if locator is not None and not isinstance(locator, str):
             locator = str(locator)
         claim_id = f"{chapter}-C{index+1:03d}"
+        source_id = source.canonical_source_id or source.source_id
         item = EvidenceItem(
             claim_id=claim_id,
-            source_id=source.source_id,
+            source_id=source_id,
             snippet=snippet,
             locator=locator or "abstract",
             relevance_score=0.5,

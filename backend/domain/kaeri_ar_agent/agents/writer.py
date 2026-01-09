@@ -31,7 +31,7 @@ def write_chapters(
         else:
             prompt = (
                 "You are writing a technical Korean report. "
-                "Use only the evidence snippets and cite sources as (source_id). "
+                "Use only the evidence snippets and cite sources as (canonical_source_id). "
                 "No honorifics. Return a single paragraph.\n\n"
                 f"Chapter: {chapter}\n"
                 f"Report topic: {topic}\n"

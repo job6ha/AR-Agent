@@ -83,22 +83,28 @@ async def compose_text_async(
         for source_id in draft.citation_source_ids:
             if source_id not in used_ids:
                 used_ids.append(source_id)
-    source_map = {source["source_id"]: source for source in sources}
+    source_map = {}
+    for source in sources:
+        canonical_id = source.get("canonical_source_id") or source.get("source_id")
+        source_map[canonical_id] = source
 
     def _format_ref(index: int, source: Dict) -> str:
-        authors = ", ".join(source.get("authors") or [])
+        metadata = source.get("canonical_metadata") or {}
+        authors = ", ".join(metadata.get("authors") or source.get("authors") or [])
         if authors:
             authors = f"{authors}. "
-        year = source.get("year") or "n.d."
-        title = source.get("title") or source.get("source_id")
-        venue = source.get("venue") or ""
-        link = source.get("doi") or source.get("url") or ""
+        year = metadata.get("year") or source.get("year") or "n.d."
+        title = metadata.get("title") or source.get("title") or source.get("source_id")
+        venue = metadata.get("venue") or source.get("venue") or ""
+        link = metadata.get("doi") or source.get("doi") or metadata.get("url") or source.get("url") or ""
+        preprint_only = source.get("preprint_only")
+        label = "[preprint] " if preprint_only else ""
         parts = [f"[{index}] ", authors, f"({year}). ", f"{title}. "]
         if venue:
             parts.append(f"{venue}. ")
         if link:
             parts.append(f"{link}")
-        return "".join(parts).strip()
+        return (label + "".join(parts)).strip()
 
     citation_index = {sid: idx + 1 for idx, sid in enumerate(used_ids)}
     text = "\n".join(sections)

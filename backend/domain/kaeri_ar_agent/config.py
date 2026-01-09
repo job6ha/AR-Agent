@@ -35,6 +35,7 @@ class AgentConfig:
     request_timeout_s: float = 20.0
     request_retry_count: int = 2
     request_retry_backoff_s: float = 1.0
+    provider_timeout_s: float = 20.0
     mock_mode: bool = True
     max_sources: int = 20
     max_evidence_per_chapter: int = 12
@@ -42,8 +43,13 @@ class AgentConfig:
     max_query_length: int = 200
     max_iterations: int = 2
     max_concurrency: int = 6
+    max_provider_concurrency: int = 4
     prompts_path: str = "backend/prompts.yaml"
     g2_mode: str = "hard"
+    verify_mode: str = "hard"
+    openalex_mailto: Optional[str] = None
+    unpaywall_email: Optional[str] = None
+    semanticscholar_api_key: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> "AgentConfig":
@@ -72,6 +78,7 @@ class AgentConfig:
             request_timeout_s=float(os.getenv("REQUEST_TIMEOUT_S", "20")),
             request_retry_count=int(os.getenv("REQUEST_RETRY_COUNT", "2")),
             request_retry_backoff_s=float(os.getenv("REQUEST_RETRY_BACKOFF_S", "1.0")),
+            provider_timeout_s=float(os.getenv("PROVIDER_TIMEOUT_S", os.getenv("REQUEST_TIMEOUT_S", "20"))),
             mock_mode=os.getenv("MOCK_MODE", "true").lower() == "true",
             max_sources=int(os.getenv("MAX_SOURCES", "20")),
             max_evidence_per_chapter=int(os.getenv("MAX_EVIDENCE_PER_CHAPTER", "12")),
@@ -79,8 +86,13 @@ class AgentConfig:
             max_query_length=int(os.getenv("MAX_QUERY_LENGTH", "200")),
             max_iterations=int(os.getenv("MAX_ITERATIONS", "2")),
             max_concurrency=int(os.getenv("MAX_CONCURRENCY", "6")),
+            max_provider_concurrency=int(os.getenv("MAX_PROVIDER_CONCURRENCY", "4")),
             prompts_path=os.getenv("PROMPTS_PATH", "backend/prompts.yaml"),
             g2_mode=os.getenv("G2_MODE", "hard"),
+            verify_mode=os.getenv("VERIFY_MODE", "hard"),
+            openalex_mailto=os.getenv("OPENALEX_MAILTO"),
+            unpaywall_email=os.getenv("UNPAYWALL_EMAIL"),
+            semanticscholar_api_key=os.getenv("SEMANTICSCHOLAR_API_KEY"),
         )
 
     def build_llm(self, agent: Optional[str] = None) -> ChatOpenAI:

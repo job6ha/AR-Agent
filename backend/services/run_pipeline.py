@@ -86,7 +86,11 @@ async def run_pipeline_task(record: RunRecord) -> None:
         sources = state.get("sources", [])
         drafts = state.get("drafts", [])
         cited_ids = {cid for draft in drafts for cid in draft.citation_source_ids}
-        unused_sources = [source for source in sources if source.source_id not in cited_ids]
+        unused_sources = [
+            source
+            for source in sources
+            if (source.canonical_source_id or source.source_id) not in cited_ids
+        ]
         markdown = "# Pipeline Output\n\n"
         if output:
             markdown += output + "\n\n"
@@ -98,12 +102,13 @@ async def run_pipeline_task(record: RunRecord) -> None:
         if unused_sources:
             markdown += "## Retrieved But Unused Sources\n"
             for source in unused_sources:
-                title = source.title or source.source_id
+                source_id = source.canonical_source_id or source.source_id
+                title = source.title or source_id
                 link = source.url or source.doi or ""
                 if link:
-                    markdown += f"- {title} ({source.source_id}) - {link}\n"
+                    markdown += f"- {title} ({source_id}) - {link}\n"
                 else:
-                    markdown += f"- {title} ({source.source_id})\n"
+                    markdown += f"- {title} ({source_id})\n"
             markdown += "\n"
         if record.errors:
             markdown += "## Issues\n"

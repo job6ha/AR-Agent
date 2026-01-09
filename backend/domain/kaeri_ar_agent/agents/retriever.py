@@ -96,6 +96,7 @@ async def retrieve_sources_async(
                 trust_score=0.7,
                 retrieved_at=datetime.utcnow().isoformat(),
                 source_type="paper",
+                identifiers={"arxiv_id": "0000.0000", "doi": "10.48550/arXiv.0000.0000"},
             )
         ]
 

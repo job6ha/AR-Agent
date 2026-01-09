@@ -89,6 +89,7 @@ def parse_arxiv_feed(feed_xml: str) -> List[dict]:
                 "abstract": entry.get("summary"),
                 "trust_score": 0.6,
                 "source_type": "paper",
+                "identifiers": {"arxiv_id": arxiv_id, "doi": entry.get("arxiv_doi")},
             }
         )
     return results

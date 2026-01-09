@@ -11,11 +11,13 @@ from .agents.extractor import extract_evidence
 from .agents.outliner import generate_outline
 from .agents.planner import build_query_plan
 from .agents.qa import qa_checks
+from .agents.resolver import resolve_sources
 from .agents.retriever import retrieve_sources
 from .agents.refiner import refine_query_plan
+from .agents.status_checker import check_status
 from .agents.writer import write_chapters
 from .config import AgentConfig
-from .gates import gate_g1_sources
+from .gates import gate_g1_sources, gate_g1a_consensus
 from .prompts import load_prompts
 from .schemas import PipelineInputs
 from .state import PipelineState
@@ -221,6 +223,130 @@ def _extract_node(
             },
         )
     return {"evidence": evidence, "evidence_stats": evidence_stats}
+
+
+def _resolve_node(
+    state: PipelineState,
+    config: AgentConfig,
+    emit: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]],
+) -> Dict:
+    if emit:
+        emit(
+            "resolver",
+            "canonicalization started",
+            {
+                "summary": "DOI 중심 정본화를 수행하는 중",
+                "sources": len(state.get("sources", [])),
+            },
+        )
+    sources = state.get("sources", [])
+    resolved, stats = resolve_sources(config, sources)
+    if emit:
+        emit(
+            "resolver",
+            "canonicalization completed",
+            {
+                "summary": "정본화 완료",
+                "resolved_sources": len(resolved),
+                "doi_confirmed": stats.doi_confirmed,
+                "preprint_only": stats.preprint_only,
+                "provider_hits": stats.provider_hits,
+                "provider_misses": stats.provider_misses,
+            },
+        )
+    return {"sources": resolved}
+
+
+def _gate_g1a_node(
+    state: PipelineState,
+    config: AgentConfig,
+    emit: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]],
+) -> Dict:
+    if emit:
+        emit(
+            "gates",
+            "G1a consensus validation started",
+            {"summary": "복수 소스 합의 기반 출처 검증 중"},
+        )
+    result = gate_g1a_consensus(config, state.get("sources", []))
+    scored = []
+    for item in result.sources + result.pending + result.rejected:
+        verification = item.verification
+        scored.append(
+            {
+                "source_id": item.source_id,
+                "canonical_source_id": item.canonical_source_id,
+                "identity_score": verification.identity_score if verification else 0.0,
+                "consensus_sources": verification.consensus_sources if verification else [],
+                "match_signals": verification.match_signals if verification else {},
+            }
+        )
+    gates = {**state.get("gates", {}), "g1a_passed": result.audit.passed}
+    errors = list(state.get("errors", []))
+    warnings = list(state.get("warnings", []))
+    last_issues: List[str] = []
+    filtered_sources = result.sources
+    if config.verify_mode == "soft":
+        if result.pending:
+            warnings.append("Consensus pending sources accepted in soft mode.")
+        if result.rejected:
+            warnings.append("Consensus rejected sources excluded in soft mode.")
+        filtered_sources = result.sources + result.pending
+        gates["g1a_passed"] = True
+    else:
+        if not result.audit.passed:
+            errors.extend(result.audit.issues)
+            last_issues = result.audit.issues
+    if emit:
+        emit(
+            "gates",
+            "G1a consensus result",
+            {
+                "summary": "합의 점수 평가 완료",
+                "passed": len(result.sources),
+                "pending": len(result.pending),
+                "rejected": len(result.rejected),
+                "issues": result.audit.issues,
+                "scores": scored[:10],
+            },
+        )
+    return {
+        "sources": filtered_sources,
+        "gates": gates,
+        "errors": errors,
+        "warnings": warnings,
+        "last_issues": last_issues if not gates.get("g1a_passed") else [],
+    }
+
+
+def _status_node(
+    state: PipelineState,
+    config: AgentConfig,
+    emit: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]],
+) -> Dict:
+    if emit:
+        emit(
+            "status_checker",
+            "status check started",
+            {"summary": "출처 상태(철회/정정/EoC) 확인 중"},
+        )
+    result = check_status(config, state.get("sources", []))
+    errors = list(state.get("errors", []))
+    warnings = list(state.get("warnings", []))
+    errors.extend(result.errors)
+    warnings.extend(result.warnings)
+    if emit:
+        emit(
+            "status_checker",
+            "status check completed",
+            {
+                "summary": "상태 점검 완료",
+                "remaining": len(result.sources),
+                "warnings": result.warnings,
+                "errors": result.errors,
+            },
+        )
+    return {"sources": result.sources, "errors": errors, "warnings": warnings}
 
 
 def _gate_evidence_node(
@@ -498,11 +624,16 @@ def build_pipeline(
     config: AgentConfig,
     emit: Optional[Callable[[str, str, Optional[Dict[str, Any]]], None]] = None,
 ) -> StateGraph:
+    # Pipeline: outline -> plan -> retrieve -> gate_g1 -> resolve -> gate_g1a -> status_check
+    #           -> extract -> gate_evidence -> write -> audit -> compose -> qa -> end
     graph = StateGraph(PipelineState)
     graph.add_node("outline", lambda state: _outline_node(state, config, emit))
     graph.add_node("plan", lambda state: _plan_node(state, config, emit))
     graph.add_node("retrieve", lambda state: _retrieve_node(state, config, emit))
     graph.add_node("gate_g1", lambda state: _gate_g1_node(state, emit))
+    graph.add_node("resolve", lambda state: _resolve_node(state, config, emit))
+    graph.add_node("gate_g1a", lambda state: _gate_g1a_node(state, config, emit))
+    graph.add_node("status_check", lambda state: _status_node(state, config, emit))
     graph.add_node("extract", lambda state: _extract_node(state, config, emit))
     graph.add_node("gate_evidence", lambda state: _gate_evidence_node(state, emit))
     graph.add_node("write", lambda state: _write_node(state, config, emit))
@@ -518,10 +649,18 @@ def build_pipeline(
     graph.add_edge("retrieve", "gate_g1")
     graph.add_conditional_edges(
         "gate_g1",
-        lambda state: "extract"
+        lambda state: "resolve"
         if state.get("gates", {}).get("g1_passed")
         else ("refine" if state.get("iteration", 0) < state.get("max_iterations", 0) else END),
     )
+    graph.add_edge("resolve", "gate_g1a")
+    graph.add_conditional_edges(
+        "gate_g1a",
+        lambda state: "status_check"
+        if state.get("gates", {}).get("g1a_passed")
+        else ("refine" if state.get("iteration", 0) < state.get("max_iterations", 0) else END),
+    )
+    graph.add_edge("status_check", "extract")
     graph.add_edge("extract", "gate_evidence")
     graph.add_conditional_edges(
         "gate_evidence",

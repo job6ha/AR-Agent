@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import List
 
-from .schemas import AuditResult, DraftNode, SourceRecord
+from ..schemas import AuditResult, DraftNode, SourceRecord
+from .g1a_consensus import gate_g1a_consensus
 
 
 def gate_g1_sources(sources: List[SourceRecord]) -> AuditResult:
@@ -18,11 +19,14 @@ def gate_g1_sources(sources: List[SourceRecord]) -> AuditResult:
 
 def gate_g2_citations(sources: List[SourceRecord], drafts: List[DraftNode]) -> AuditResult:
     issues: List[str] = []
-    source_ids = {source.source_id for source in sources}
+    canonical_ids = {source.canonical_source_id or source.source_id for source in sources}
     cited_ids = {cite for draft in drafts for cite in draft.citation_source_ids}
-    missing = sorted(cited_ids - source_ids)
+    missing = sorted(cited_ids - canonical_ids)
     if missing:
         issues.append(f"Missing cited sources: {', '.join(missing)}")
     if not drafts:
         issues.append("No draft content produced.")
     return AuditResult(passed=not issues, issues=issues)
+
+
+__all__ = ["gate_g1_sources", "gate_g2_citations", "gate_g1a_consensus"]
