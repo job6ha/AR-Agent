@@ -1,10 +1,5 @@
-import os
-import sys
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "core"))
-
-from kaeri_ar_agent import AgentConfig, run_pipeline
-from kaeri_ar_agent.prompting import collect_prompt_from_stdin, parse_prompt
+from backend.domain.kaeri_ar_agent import AgentConfig, run_pipeline
+from backend.domain.kaeri_ar_agent.prompting import collect_prompt_from_stdin, parse_prompt
 
 
 def main():

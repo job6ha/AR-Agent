@@ -15,7 +15,7 @@ RUN uv sync --frozen --no-dev
 COPY backend ./backend
 COPY .env.example ./
 
-ENV PYTHONPATH=/app/backend/core
+ENV PYTHONPATH=/app
 
 EXPOSE 8000
 

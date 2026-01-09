@@ -26,8 +26,8 @@ Outliner → Planner → Retriever(RAG) → G1 → Extractor → G1b → Writer 
 
 폴더 구조
 ---------
-- `backend/core/kaeri_ar_agent/agents/`: outliner/planner/retriever/extractor/writer/auditor/composer/qa/refiner
-- `backend/core/kaeri_ar_agent/`: config, schemas, gates, pipeline, prompts
+- `backend/domain/kaeri_ar_agent/agents/`: outliner/planner/retriever/extractor/writer/auditor/composer/qa/refiner
+- `backend/domain/kaeri_ar_agent/`: config, schemas, gates, pipeline, prompts
 - `backend/main.py`: FastAPI 서버
 - `backend/cli.py`: 로컬 CLI 실행
 - `backend/prompts.yaml`: 에이전트 시스템 프롬프트
